@@ -1,4 +1,4 @@
-# main_optimized.py
+# server.py
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
@@ -124,7 +124,8 @@ async def generate_stream_response_optimized(request: ChatCompletionRequest,
     mock_content = generate_mock_response_fast(request.messages, request.model)
 
     # 🚀 优化3：可选择是否模拟流式输出
-    if request.temperature > 0.5:  # 用temperature控制是否模拟延迟
+    temperature = request.temperature or 0.7  # 默认为0.7
+    if temperature > 0.5:  # 用temperature控制是否模拟延迟
         # 模拟流式输出（但速度更快）
         # 将内容分成更小的块（单个字符而不是词）
         chunk_size = max(1, len(mock_content) // 10)  # 分成10块
@@ -178,6 +179,24 @@ async def generate_stream_response_optimized(request: ChatCompletionRequest,
         ]
     }
     yield f"data: {json.dumps(final_chunk, ensure_ascii=False)}\n\n"
+
+    # 发送 usage 信息（OpenAI API 标准行为）
+    prompt_tokens = sum(count_tokens(msg.content) for msg in request.messages)
+    completion_tokens = count_tokens(mock_content)
+    usage_chunk = {
+        "id": response_id,
+        "object": "chat.completion.chunk",
+        "created": created_time,
+        "model": request.model,
+        "choices": [],
+        "usage": {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": prompt_tokens + completion_tokens
+        }
+    }
+    yield f"data: {json.dumps(usage_chunk, ensure_ascii=False)}\n\n"
+
     yield "data: [DONE]\n\n"
 
 
@@ -189,7 +208,7 @@ async def list_models():
         "object": "list",
         "data": [
             {
-                "id": "ctdi-gpt-3-5-turbo-c4c351",
+                "id": "gpt-3-5-turbo",
                 "object": "model",
                 "created": 1686935002,
                 "owned_by": "mock"
@@ -254,14 +273,14 @@ async def health_check():
 if __name__ == "__main__":
     import uvicorn
 
-    # 🚀 优化6：使用高性能配置
+    # 🚀 关键修改：使用 "main_optimized:app" 字符串格式
     uvicorn.run(
-        app,
+        "server:app",  # 注意：这里是字符串，不是 app 对象
         host="0.0.0.0",
-        port=8889,  # 改为你的端口
-        workers=4,  # 多worker进程
-        loop="uvloop",  # 更快的event loop
-        http="httptools",  # 更快的HTTP解析
-        limit_concurrency=1000,  # 提高并发限制
-        backlog=2048  # 增加backlog
+        port=8889,
+        workers=4,  # 现在可以正常工作了
+        loop="uvloop",
+        http="httptools",
+        limit_concurrency=1000,
+        backlog=2048
     )
